@@ -97,7 +97,15 @@
   #surface { flex:1; min-height:0; position:relative; }
 
   /* keyboard */
-  #kbd { position:absolute; inset:0; }
+  #kbd { position:absolute; left:0; top:0; bottom:0; right:52px; }
+  #octCol { position:absolute; right:0; top:0; bottom:0; width:46px; display:flex; flex-direction:column; gap:5px; }
+  #octCol button {
+    flex:1; border:none; border-radius:10px; background:#1d2027; color:#e7e9ee;
+    font-size:17px; font-weight:800; cursor:pointer;
+  }
+  #octCol button:active { filter:brightness(1.4); }
+  #octCol button:disabled { opacity:.3; }
+  #octLbl { text-align:center; font-size:11px; color:#9aa2b1; font-weight:800; padding:1px 0; }
   .wk {
     position:absolute; top:0; bottom:0; background:#f4f5f7; border:1px solid #0e0f13;
     border-radius:0 0 7px 7px;
@@ -199,6 +207,11 @@
     </div>
     <div id="surface">
       <div id="kbd"></div>
+      <div id="octCol">
+        <button id="octUp">+</button>
+        <div id="octLbl">Oct 0</div>
+        <button id="octDown">−</button>
+      </div>
       <div id="drums">
         <div id="kitRow">
           <button class="kitBtn on" data-kit="k808">808</button>
@@ -255,6 +268,7 @@ const state = {
   kit: 'k808',
   tracks: {},           // instId -> {inst, events:[{b,n,d}], muted}
   repeats: 4,
+  octave: 0,            // keyboard shift in octaves, -2..+2
 };
 const loopBeats = () => state.measures * 4;   // length for the NEXT recorded part
 // the song is as long as its longest part (or the selector, so you can arm a longer part)
@@ -624,6 +638,7 @@ const liveVoices = new Map(); // pointerId -> {handle, midi, pressAbsB, rec, ins
 
 function noteOn(midi, pid) {
   ensureAudio();
+  midi += state.octave * 12;   // octave shift applies to what you play from now on
   const inst = state.inst;
   const t = AC.currentTime;
   const handle = startTone(AC, liveGain, inst, midi, t);
@@ -819,6 +834,19 @@ $('measSeg').querySelectorAll('button').forEach(b => {
     buildPlayhead();
   });
 });
+function shiftOctave(d) {
+  state.octave = Math.max(-2, Math.min(2, state.octave + d));
+  $('octLbl').textContent = 'Oct ' + (state.octave > 0 ? '+' + state.octave : state.octave);
+  $('octUp').disabled = state.octave >= 2;
+  $('octDown').disabled = state.octave <= -2;
+  document.querySelectorAll('.wk .lbl').forEach(l => {
+    const m = +l.parentElement.dataset.m + state.octave * 12;
+    l.textContent = 'C' + (m / 12 - 1);
+  });
+}
+$('octUp').addEventListener('pointerdown', e => { e.preventDefault(); shiftOctave(1); });
+$('octDown').addEventListener('pointerdown', e => { e.preventDefault(); shiftOctave(-1); });
+
 $('metroBtn').addEventListener('click', () => {
   state.metronome = !state.metronome;
   $('metroBtn').classList.toggle('on', state.metronome);
@@ -832,6 +860,7 @@ function selectTab(tab) {
   if (tab !== 'drums') state.inst = tab;   // recording always targets a tone preset
   document.querySelectorAll('.itab').forEach(x => x.classList.toggle('on', x.dataset.inst === tab));
   $('kbd').style.display = tab === 'drums' ? 'none' : 'block';
+  $('octCol').style.display = tab === 'drums' ? 'none' : 'flex';
   $('drums').style.display = tab === 'drums' ? 'flex' : 'none';
   render();
 }
