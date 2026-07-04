@@ -4,7 +4,7 @@ A one-file web app for making music loops. Open `index.html` in any modern brows
 (or serve the folder over HTTP). Designed for an iPhone in landscape.
 
 ## How to use
-1. Pick a sound tab: **Bass / Synth / Keys / Brass** and play the keyboard.
+1. Pick a sound tab: **Bass / Synth / Keys / Organ / Pluck** and play the keyboard.
 2. Tap **●** — you get a 4-beat count-in, then everything you play is recorded into the loop.
    The loop keeps cycling, so you can layer more notes on any pass, or switch sounds and
    keep recording — each sound gets its own track automatically.
