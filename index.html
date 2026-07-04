@@ -60,6 +60,7 @@
     border:1.5px solid transparent;
   }
   .trk.sel { border-color:#3b82f6; }
+  .trk.off .dot, .trk.off .nm { opacity:.35; }
   .trk .dot { width:9px; height:9px; border-radius:50%; flex:0 0 auto; }
   .trk .nm { flex:1; font-size:12.5px; font-weight:700; overflow:hidden; white-space:nowrap; }
   .trk .cnt { font-size:9.5px; color:#717a8a; font-weight:600; }
@@ -139,6 +140,19 @@
   #dlgGo { background:#3b82f6; color:#fff; }
   #dlgStatus { font-size:12px; color:#4ade80; height:16px; margin-top:8px; }
 
+  /* songs dialog */
+  #songDialog { background:#1b1e25; border-radius:16px; padding:16px; width:330px; max-height:82%; display:flex; flex-direction:column; }
+  #songDialog h3 { font-size:15px; text-align:center; margin-bottom:10px; }
+  #saveNew { border:none; border-radius:10px; height:42px; background:#3b82f6; color:#fff; font-weight:700; font-size:14px; cursor:pointer; flex:0 0 auto; }
+  #songList { overflow-y:auto; margin-top:4px; }
+  .songRow { display:flex; align-items:center; gap:8px; background:#242833; border-radius:10px; padding:9px 6px 9px 12px; margin-top:8px; cursor:pointer; }
+  .songRow:active { filter:brightness(1.3); }
+  .songRow .snm { flex:1; font-size:12.5px; font-weight:700; }
+  .songRow .snm small { display:block; font-weight:600; color:#8a93a5; font-size:10.5px; margin-top:2px; }
+  .songRow button { border:none; background:#2f3441; color:#f87171; border-radius:8px; width:30px; height:30px; font-weight:800; cursor:pointer; flex:0 0 auto; }
+  #songClose { border:none; border-radius:10px; height:38px; background:#272b34; color:#c6ccd8; font-weight:700; font-size:13px; margin-top:10px; cursor:pointer; flex:0 0 auto; }
+  #songEmpty { color:#5b6472; font-size:12px; text-align:center; padding:14px 0 6px; }
+
   /* rotate prompt */
   #rotate {
     position:fixed; inset:0; background:#0e0f13; z-index:100; display:none;
@@ -165,6 +179,7 @@
     <button data-m="8">8</button>
   </div>
   <button class="tbtn on" id="metroBtn" title="Metronome">◭</button>
+  <button class="tbtn" id="saveBtn" title="Songs">💾</button>
   <button class="tbtn" id="exportBtn">MP3 ⬇</button>
 </div>
 
@@ -212,6 +227,15 @@
   </div>
 </div>
 
+<div id="songOverlay" style="position:fixed;inset:0;background:rgba(0,0,0,.65);display:none;align-items:center;justify-content:center;z-index:50;">
+  <div id="songDialog">
+    <h3>Songs</h3>
+    <button id="saveNew">💾 Save current song</button>
+    <div id="songList"></div>
+    <button id="songClose">Close</button>
+  </div>
+</div>
+
 <div id="rotate"><div class="ico">📱↻</div>Rotate your phone sideways</div>
 
 <script src="lame.min.js"></script>
@@ -231,7 +255,16 @@ const state = {
   tracks: {},           // instId -> {inst, events:[{b,n,d}], muted}
   repeats: 4,
 };
-const loopBeats = () => state.measures * 4;
+const loopBeats = () => state.measures * 4;   // length for the NEXT recorded part
+// the song is as long as its longest part (or the selector, so you can arm a longer part)
+function songBeats() {
+  let b = loopBeats();
+  for (const id in state.tracks) {
+    const t = state.tracks[id];
+    if (id !== 'beat' && t.beats > b) b = t.beats;
+  }
+  return b;
+}
 
 const INST_META = {
   bass:  { name:'Bass',   color:'#f59e0b' },
@@ -508,12 +541,12 @@ function stopTransport() {
 }
 function schedTick() {
   const target = nowBeat() + LOOKAHEAD / beatDur();
-  const LB = loopBeats();
+  const SB = songBeats();
   // metronome on integer beats
   if (state.metronome) {
     for (let b = Math.floor(schedUntil) + 1; b <= Math.floor(target); b++) {
       if (b < 0) continue;
-      metroClick(AC, playGain, startTime + b * beatDur(), b % LB === 0);
+      metroClick(AC, playGain, startTime + b * beatDur(), b % SB === 0);
     }
   }
   // track events
@@ -533,11 +566,12 @@ function schedTick() {
       }
       continue;
     }
+    const P = tr.beats || SB;   // this part cycles on its own length
     for (const ev of tr.events) {
-      if (ev.b >= LB) continue;
-      const k0 = Math.floor(schedUntil / LB) - 1, k1 = Math.floor(target / LB) + 1;
+      if (ev.b >= P) continue;
+      const k0 = Math.floor(schedUntil / P) - 1, k1 = Math.floor(target / P) + 1;
       for (let k = k0; k <= k1; k++) {
-        const ab = k * LB + ev.b;
+        const ab = k * P + ev.b;
         if (ab <= schedUntil || ab > target || ab < 0) continue;
         const t = startTime + ab * beatDur();
         const v = startTone(AC, playGain, tr.inst, ev.n, t);
@@ -551,16 +585,16 @@ function schedTick() {
 /* recording helpers */
 const recActive = () => state.recording && state.playing && nowBeat() >= 0;
 const QUANT = 0.25; // 1/16 note
-function quantPos(absB) {
-  const LB = loopBeats();
-  let p = ((absB % LB) + LB) % LB;
+function quantPos(absB, period) {
+  let p = ((absB % period) + period) % period;
   p = Math.round(p / QUANT) * QUANT;
-  if (p >= LB) p = 0;
+  if (p >= period) p = 0;
   return p;
 }
 function trackFor(inst) {
   if (!state.tracks[inst]) {
-    state.tracks[inst] = { inst, events: [], muted: false };
+    // a new part is as long as the 2/4/8 selector says, and keeps that length
+    state.tracks[inst] = { inst, events: [], muted: false, beats: loopBeats() };
     render();
   }
   return state.tracks[inst];
@@ -586,7 +620,8 @@ function noteOff(pid) {
   v.handle.release(AC.currentTime);
   if (v.rec && state.recording && state.playing) {
     const durB = Math.max(0.15, nowBeat() - v.pressAbsB);
-    trackFor(v.inst).events.push({ b: quantPos(v.pressAbsB), n: v.midi, d: durB });
+    const tr = trackFor(v.inst);
+    tr.events.push({ b: quantPos(v.pressAbsB, tr.beats), n: v.midi, d: durB });
     render();
   }
 }
@@ -812,11 +847,11 @@ function render() {
       : INST_META[id].name;
     const sel = isBeat ? state.tab === 'drums' : (state.inst === id && state.tab !== 'drums');
     const row = document.createElement('div');
-    row.className = 'trk' + (sel ? ' sel' : '');
+    row.className = 'trk' + (sel ? ' sel' : '') + (tr.muted ? ' off' : '');
     row.innerHTML =
       '<div class="dot" style="background:' + color + '"></div>' +
       '<div class="nm" style="color:' + color + '">' + name +
-      (isBeat ? '' : ' <span class="cnt">' + tr.events.length + '</span>') + '</div>';
+      (isBeat ? '' : ' <span class="cnt">' + (tr.beats / 4) + 'm</span>') + '</div>';
     const mute = document.createElement('button');
     mute.textContent = 'M';
     mute.className = tr.muted ? 'muted' : '';
@@ -835,13 +870,16 @@ function render() {
     panel.appendChild(row);
   });
   buildBeatGrid();
+  buildPlayhead();
 }
 
 /* playhead */
 function buildPlayhead() {
   const w = $('phWrap');
+  const n = songBeats() / 4;
+  if (w.querySelectorAll('.phMeasure').length === n) return;
   w.querySelectorAll('.phMeasure').forEach(e => e.remove());
-  for (let i = 0; i < state.measures; i++) {
+  for (let i = 0; i < n; i++) {
     const d = document.createElement('div');
     d.className = 'phMeasure';
     w.appendChild(d);
@@ -858,11 +896,80 @@ function uiTick() {
     ci.textContent = 'GET READY  ' + Math.min(4, Math.max(1, Math.floor(b) + 5));
   } else {
     ci.style.display = 'none';
-    const frac = (b % loopBeats()) / loopBeats();
+    const SB = songBeats();
+    const frac = (b % SB) / SB;
     $('ph').style.left = (frac * $('phWrap').clientWidth) + 'px';
   }
   requestAnimationFrame(uiTick);
 }
+
+/* ================= songs (save / load) ================= */
+const SONGS_KEY = 'loopy-songs';
+function getSongs() {
+  try { return JSON.parse(localStorage.getItem(SONGS_KEY)) || []; } catch (e) { return []; }
+}
+function setSongs(s) {
+  try { localStorage.setItem(SONGS_KEY, JSON.stringify(s)); } catch (e) {}
+}
+function songSummary(s) {
+  const names = Object.keys(s.tracks).map(id =>
+    id === 'beat' ? 'Drums' : INST_META[id].name);
+  return s.bpm + ' bpm · ' + (names.join(', ') || 'empty');
+}
+function renderSongList() {
+  const list = $('songList');
+  list.innerHTML = '';
+  const songs = getSongs();
+  if (!songs.length) {
+    list.innerHTML = '<div id="songEmpty">No saved songs yet.</div>';
+    return;
+  }
+  songs.forEach((s, i) => {
+    const row = document.createElement('div');
+    row.className = 'songRow';
+    row.innerHTML = '<div class="snm">' + s.name + '<small>' + songSummary(s) + '</small></div>';
+    const del = document.createElement('button');
+    del.textContent = '✕';
+    del.addEventListener('click', e => {
+      e.stopPropagation();
+      songs.splice(i, 1); setSongs(songs); renderSongList();
+    });
+    row.appendChild(del);
+    row.addEventListener('click', () => loadSong(s));
+    list.appendChild(row);
+  });
+}
+function loadSong(s) {
+  if (state.playing) stopTransport();
+  state.tracks = JSON.parse(JSON.stringify(s.tracks));
+  for (const id in state.tracks) {
+    if (id !== 'beat' && !state.tracks[id].beats) state.tracks[id].beats = s.measures * 4;
+  }
+  state.measures = s.measures;
+  $('measSeg').querySelectorAll('button').forEach(x => x.classList.toggle('on', +x.dataset.m === s.measures));
+  setBpm(s.bpm);
+  $('songOverlay').style.display = 'none';
+  render();
+}
+$('saveBtn').addEventListener('click', () => {
+  renderSongList();
+  $('songOverlay').style.display = 'flex';
+});
+$('saveNew').addEventListener('click', () => {
+  const songs = getSongs();
+  const nextNum = songs.reduce((m, s) => Math.max(m, +((s.name.match(/^Song (\d+)/) || [])[1] || 0)), 0) + 1;
+  songs.unshift({
+    name: 'Song ' + nextNum,
+    ts: Date.now(),
+    bpm: state.bpm,
+    measures: state.measures,
+    tracks: JSON.parse(JSON.stringify(state.tracks)),
+  });
+  setSongs(songs);
+  renderSongList();
+});
+$('songClose').addEventListener('click', () => $('songOverlay').style.display = 'none');
+$('songOverlay').addEventListener('click', e => { if (e.target === $('songOverlay')) $('songOverlay').style.display = 'none'; });
 
 /* ================= export ================= */
 $('exportBtn').addEventListener('click', () => {
@@ -898,26 +1005,27 @@ $('dlgGo').addEventListener('click', async () => {
 });
 
 async function renderMix(repeats) {
-  const sr = 44100, bd = 60 / state.bpm, LB = loopBeats();
-  const totalSec = LB * bd * repeats + 1.2;
+  const sr = 44100, bd = 60 / state.bpm, SB = songBeats();
+  const totalBeats = SB * repeats;
+  const totalSec = totalBeats * bd + 1.2;
   const octx = new OfflineAudioContext(2, Math.ceil(totalSec * sr), sr);
   const m = buildMaster(octx);
   for (const id in state.tracks) {
     const tr = state.tracks[id];
     if (tr.muted) continue;
     if (id === 'beat') {
-      const nMeasures = (LB / 4) * repeats;
       for (const [pad, step] of beatHits(tr.inst, tr.pat)) {
-        for (let mi = 0; mi < nMeasures; mi++) {
+        for (let mi = 0; mi < totalBeats / 4; mi++) {
           playDrum(octx, m.input, tr.inst, pad, 0.05 + (mi * 4 + step * 0.25) * bd);
         }
       }
       continue;
     }
+    const P = tr.beats || SB;
     for (const ev of tr.events) {
-      if (ev.b >= LB) continue;
-      for (let k = 0; k < repeats; k++) {
-        const t = 0.05 + (k * LB + ev.b) * bd;
+      if (ev.b >= P) continue;
+      for (let k = 0; k < totalBeats / P; k++) {
+        const t = 0.05 + (k * P + ev.b) * bd;
         const v = startTone(octx, m.input, tr.inst, ev.n, t);
         v.release(t + Math.max(0.06, ev.d) * bd);
       }

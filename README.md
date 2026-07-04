@@ -14,8 +14,13 @@ A one-file web app for making music loops. Open `index.html` in any modern brows
 4. Tap **●** again to stop recording (playback keeps going). **▶ / ■** plays or stops the loop.
 5. Each track in the left panel has **M** (mute) and **✕** (delete). To re-record a part:
    tap **✕**, then **●**.
-6. Top bar: tempo (− / +, hold to scrub), loop length (2 / 4 / 8 measures), metronome toggle,
-   and **MP3 ⬇** export (choose 1–10 repeats).
+6. **Parts can be different lengths.** The 2 / 4 / 8 selector sets the length of the *next part
+   you record*. A 2-measure bass riff keeps cycling inside a 4- or 8-measure song — the song
+   is automatically as long as its longest part (each track shows its length, e.g. "2m").
+7. **💾 Songs** saves the current song (tracks, tempo, lengths) in your browser. Tap a saved
+   song to load it back, ✕ to delete it. Saves survive page reloads.
+8. Top bar: tempo (− / +, hold to scrub), part length (2 / 4 / 8 measures), metronome toggle,
+   💾 songs, and **MP3 ⬇** export (choose 1–10 repeats).
 
 Notes are lightly quantized to 16th notes so loops stay tight.
 
